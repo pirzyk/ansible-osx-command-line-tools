@@ -4,7 +4,7 @@
 - name: Am I running on Mac OS X?
   fail:
     msg: Target host is not running Mac OS X
-  when: ansible_distribution != 'MacOSX'
+  when: ansible_facts.distribution != 'MacOSX'
 
 - name: Remove existing Command Line Tools installation
   file:
@@ -26,7 +26,7 @@
   changed_when: false
 
 - name: Check the Command Line Tools package metadata
-  command: pkgutil --pkg-info=com.apple.pkg.CLTools_Executables
+  command: pkgutil --pkg-info=com.apple.pkg.Xcode
   register: pkg_info
   check_mode: no
   ignore_errors: true
@@ -38,27 +38,7 @@
     state: touch
   when: pkg_info.rc != 0 or xcode_select.rc != 0 or not clt.stat.exists
 
-- name: Check for Command Line Tools in Software Update list (MacOS < 10.15).
-  shell: >
-    set -o pipefail;
-    softwareupdate -l |
-    grep -B 1 -E 'Command Line Tools' |
-    awk -F'*' '/^ +\*/ {print $2}' |
-    sed 's/^ *//' |
-    grep -iE '[0-9|.]' |
-    sort |
-    tail -n1
-  args:
-    executable: /bin/bash
-  timeout: "{{ softwareupdate_timeout }}"
-  register: su_list_old
-  when:
-    - ansible_distribution_version is version('10.15', '<')
-    - pkg_info.rc != 0 or xcode_select.rc != 0 or not clt.stat.exists
-  changed_when: false
-  failed_when: su_list_old.rc != 0 or su_list_old.stdout|length == 0
-
-- name: Check for Command Line Tools in Software Update list (MacOS >= 10.15).
+- name: Check for Command Line Tools in Software Update list
   shell: >
     set -o pipefail;
     softwareupdate -l |
@@ -71,22 +51,11 @@
   args:
     executable: /bin/bash
   timeout: "{{ softwareupdate_timeout }}"
-  register: su_list_new
+  register: su_list
   when:
-    - ansible_distribution_version is version('10.15', '>=')
     - pkg_info.rc != 0 or xcode_select.rc != 0 or not clt.stat.exists
   changed_when: false
-  failed_when: su_list_new.stderr != 'No new software available.' and (su_list_new.rc != 0 or su_list_new.stdout|length == 0)
-
-- name: set su_list for (MacOS < 10.15).
-  set_fact:
-    su_list: "{{ su_list_old }}"
-  when: su_list_old is not skipped
-
-- name: set su_list for (MacOS >= 10.15).
-  set_fact:
-    su_list: "{{ su_list_new }}"
-  when: su_list_new is not skipped
+  failed_when: su_list.stderr != 'No new software available.' and (su_list.rc != 0 or su_list.stdout|length == 0)
 
 - name: Install Command Line Tools
   command: softwareupdate -i '{{ su_list.stdout }}'
